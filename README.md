@@ -8,8 +8,8 @@ AI Element Selector is a "Zero-Config" developer tool designed for modern web wo
 
 ## ✨ Key Features
 
-- **🎯 Universal Zero-Config**: Automatically detects and integrates with **Next.js**, **Vite (React/Vue)**, and **SvelteKit**.
-- **⚡ Smart Injection**: Uses framework-optimized injection (Next.js `<Script>` or standard HTML `<script>`) to ensure it only runs in development.
+- **🎯 Universal Zero-Config**: Automatically detects and integrates with **Next.js**, **Vite (React/Vue)**, **SvelteKit**, and **Plain HTML** (no framework needed).
+- **⚡ Zero-File-Edit Setup**: Never modifies your source files (`layout.tsx`, `index.html`). Uses **dev server middleware** (Vite plugin / Babel runtime injection) so there's zero git diff noise.
 - **🔍 Full AI Context**: Captures **10 lines of surrounding code** and **Sanitized React/SFC Props** for your AI (ChatGPT, Claude, Copilot).
 - **🖱️ Visual Selection**: Blue highlight box with customizable colors.
 - **🏎️ Auto-Focus**: Instantly brings your editor to the front and opens the exact file when an element is captured.
@@ -27,14 +27,21 @@ Open your project and run the following command from the Command Palette (`Cmd+S
 > **`AI: Setup Source Mapping for Project`**
 
 This will automatically detect your framework and:
-- **Inject the Loader**: Adds the necessary script to `layout.tsx`, `index.html`, or `app.html`.
-- **Configure Babel**: Adds the mapping plugin to your `.babelrc` (for JSX-based mapping).
+- **Configure Babel**: Adds the mapping plugin to your `.babelrc` (for JSX-based source mapping).
+- **Next.js**: The Babel plugin injects the selector script at runtime — no file edits needed.
+- **Vite / Vue / SvelteKit**: Copies a lightweight Vite plugin (`ai-selector-plugin.mjs`) to your project root and patches `vite.config.*`. The plugin file is auto-added to `.gitignore`.
 
 ### 3. Launch the Selector
 Once your dev server is running (e.g., `npm run dev`), launch the selector:
 > **`AI: Launch Selector (Zero-Config)`**
 
 Open your app (typically `localhost:3000`), and start clicking!
+
+### 4. Removing Setup (Optional)
+To cleanly undo all changes:
+> **`AI: Remove Source Mapping Setup`**
+
+This removes the Babel plugin entry and Vite plugin file from your project.
 
 ---
 
@@ -47,12 +54,13 @@ As long as you have a `.babelrc` (which our setup command creates), the loader i
 
 ## 📦 Framework Support
 
-| Framework | Entry Point | Source Mapping |
+| Framework | Injection Method | Source Mapping |
 | :--- | :--- | :--- |
-| **Next.js** | `app/layout.tsx` | Automated via Babel |
-| **Vite (React)** | `index.html` | Automated via Babel |
-| **Vue 3 (Vite)** | `index.html` | Manual (See below) |
-| **SvelteKit** | `src/app.html` | Manual (See below) |
+| **Next.js** | Babel runtime injection (zero file edits) | Automated via Babel |
+| **Vite (React)** | Vite `transformIndexHtml` plugin | Automated via Babel |
+| **Vue 3 (Vite)** | Vite `transformIndexHtml` plugin | Manual (See below) |
+| **SvelteKit** | Vite `transformIndexHtml` plugin | Manual (See below) |
+| **Plain HTML** | Built-in static server (`localhost:3210`) | Element context only |
 
 ### 🔍 Non-JSX Source Mapping (Vue & Svelte)
 For Vue templates and Svelte files, our automated Babel setup captures the element but may miss the exact file/line mapping. To enable 1-Click mapping for these frameworks, ensure your elements have the following metadata:

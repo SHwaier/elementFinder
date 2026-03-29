@@ -5,12 +5,55 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 
+// MIME type map for static file serving
+const MIME_TYPES: Record<string, string> = {
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.mjs': 'application/javascript',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.webp': 'image/webp',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.xml': 'application/xml',
+    '.map': 'application/json',
+};
+
 export class SelectionServer {
     private wss: ws.Server | undefined;
     private httpServer: http.Server | undefined;
     private port: number = 3210;
+    private projectRoot: string | undefined;
 
     constructor() {}
+
+    /**
+     * Sets the project root for static file serving mode.
+     * When set, the server serves files from this directory
+     * and auto-injects inject.js into HTML responses.
+     */
+    public setProjectRoot(root: string | undefined): void {
+        this.projectRoot = root;
+    }
+
+    public getProjectRoot(): string | undefined {
+        return this.projectRoot;
+    }
 
     public start(): void {
         const appName = vscode.env.appName;
@@ -40,6 +83,9 @@ export class SelectionServer {
                     res.writeHead(404);
                     res.end('Not Found');
                 }
+            } else if (this.projectRoot) {
+                // --- Static File Serving Mode (Plain HTML projects) ---
+                await this.serveStaticFile(req, res);
             } else {
                 res.writeHead(404);
                 res.end('Not Found');
@@ -80,6 +126,94 @@ export class SelectionServer {
     public stop(): void {
         if (this.wss) this.wss.close();
         if (this.httpServer) this.httpServer.close();
+    }
+
+    /**
+     * Serves static files from the projectRoot directory.
+     * HTML files get the inject.js script automatically appended before </body>.
+     * This enables zero-file-edit usage for plain HTML projects.
+     */
+    private async serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        if (!this.projectRoot) {
+            res.writeHead(404);
+            res.end('Not Found');
+            return;
+        }
+
+        // Decode and sanitize the URL path
+        let urlPath = decodeURIComponent(req.url || '/');
+        
+        // Strip query strings and hash fragments
+        urlPath = urlPath.split('?')[0].split('#')[0];
+
+        // Resolve to filesystem path (prevent directory traversal)
+        let filePath = path.join(this.projectRoot, urlPath);
+        const resolvedPath = path.resolve(filePath);
+        
+        // Security: ensure the resolved path is within the project root
+        if (!resolvedPath.startsWith(path.resolve(this.projectRoot))) {
+            res.writeHead(403);
+            res.end('Forbidden');
+            return;
+        }
+
+        try {
+            const stat = await fs.promises.stat(resolvedPath);
+            
+            // If it's a directory, look for index.html
+            if (stat.isDirectory()) {
+                filePath = path.join(resolvedPath, 'index.html');
+                try {
+                    await fs.promises.stat(filePath);
+                } catch {
+                    // No index.html — return a simple directory listing
+                    const entries = await fs.promises.readdir(resolvedPath);
+                    const links = entries
+                        .map(e => `<li><a href="${path.join(urlPath, e)}">${e}</a></li>`)
+                        .join('\n');
+                    const html = `<!DOCTYPE html><html><head><title>Index of ${urlPath}</title>
+                        <style>body{font-family:system-ui,sans-serif;max-width:700px;margin:40px auto;padding:0 20px}
+                        a{color:#0066cc;text-decoration:none}a:hover{text-decoration:underline}
+                        li{padding:4px 0}h1{border-bottom:1px solid #ddd;padding-bottom:10px}</style>
+                        </head><body><h1>📁 ${urlPath}</h1><ul>${links}</ul>
+                        <script src="http://localhost:3210/inject.js" async><\/script>
+                        </body></html>`;
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end(html);
+                    return;
+                }
+            } else {
+                filePath = resolvedPath;
+            }
+
+            // Read the file
+            const content = await fs.promises.readFile(filePath);
+            const ext = path.extname(filePath).toLowerCase();
+            const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+
+            // If it's HTML, inject the selector script
+            if (ext === '.html' || ext === '.htm') {
+                let html = content.toString('utf8');
+                const injection = `\n    <!-- AI Element Selector (auto-injected by dev server) -->\n    <script src="http://localhost:3210/inject.js" async><\/script>`;
+                
+                if (html.includes('</body>')) {
+                    html = html.replace('</body>', `${injection}\n  </body>`);
+                } else if (html.includes('</html>')) {
+                    html = html.replace('</html>', `${injection}\n</html>`);
+                } else {
+                    html += injection;
+                }
+
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(html);
+            } else {
+                res.writeHead(200, { 'Content-Type': mimeType });
+                res.end(content);
+            }
+        } catch (e) {
+            res.writeHead(404);
+            res.end('Not Found');
+        }
     }
 
     private handlePayload(payload: any, appName: string): void {

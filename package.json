@@ -13,7 +13,8 @@
   "activationEvents": [
     "onCommand:ai-element-selector.launchSelector",
     "onCommand:ai-element-selector.setupSourceMapping",
-    "onCommand:ai-element-selector.stopSelector"
+    "onCommand:ai-element-selector.stopSelector",
+    "onCommand:ai-element-selector.removeSetup"
   ],
   "repository": {
     "type": "git",
@@ -34,6 +35,10 @@
       {
         "command": "ai-element-selector.stopSelector",
         "title": "AI: Stop Selector"
+      },
+      {
+        "command": "ai-element-selector.removeSetup",
+        "title": "AI: Remove Source Mapping Setup"
       }
     ],
     "configuration": {

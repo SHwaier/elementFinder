@@ -5,6 +5,11 @@ import * as path from 'path';
 
 let server: SelectionServer | undefined;
 
+// --- Marker used to identify our patches in config files ---
+const CONFIG_MARKER_START = '// >>> AI Element Selector (auto-generated — safe to .gitignore)';
+const CONFIG_MARKER_END = '// <<< AI Element Selector';
+const PLUGIN_FILENAME = 'ai-selector-plugin.mjs';
+
 /**
  * Finds the project root by searching for package.json upwards.
  */
@@ -46,76 +51,158 @@ async function detectFramework(rootPath: string): Promise<Framework> {
     return 'Generic';
 }
 
+// ============================================================================
+// Vite Plugin Injection (Zero-File-Edit for Vite, Vue, SvelteKit)
+// ============================================================================
+
 /**
- * Safely injects the script into a layout file. (Next.js specific)
+ * Finds the Vite config file in the project root.
+ * Returns the path and extension, or undefined if not found.
  */
-async function injectIntoLayout(layoutPath: string): Promise<boolean> {
-    let content = await fs.promises.readFile(layoutPath, 'utf8');
-    
-    // 1. Add import Script from 'next/script' if missing
-    if (!content.includes("'next/script'") && !content.includes('"next/script"')) {
-        content = "import Script from 'next/script';\n" + content;
-    }
-
-    // 2. Prepare the injection block
-    const injection = `
-      {process.env.NODE_ENV === 'development' && (
-        <Script src="http://localhost:3210/inject.js" strategy="afterInteractive" />
-      )}`;
-
-    // 3. Find the <body> tag and inject before </body>
-    if (content.includes('</body>')) {
-        if (!content.includes('http://localhost:3210/inject.js')) {
-            content = content.replace('</body>', `${injection}\n      </body>`);
-        } else {
-            return false; // Already injected
-        }
-    } else {
-        // Fallback for layouts without explicit body tag
-        if (!content.includes('http://localhost:3210/inject.js')) {
-            content += injection;
-        } else {
-            return false;
+function findViteConfig(rootPath: string): { path: string; ext: string } | undefined {
+    const candidates = ['vite.config.ts', 'vite.config.js', 'vite.config.mjs'];
+    for (const candidate of candidates) {
+        const p = path.join(rootPath, candidate);
+        if (fs.existsSync(p)) {
+            return { path: p, ext: path.extname(candidate) };
         }
     }
-
-    fs.writeFileSync(layoutPath, content);
-    return true;
+    return undefined;
 }
 
 /**
- * Safely injects the script into an HTML file. (Vite/Vue/SvelteKit/Generic)
+ * Copies the Vite plugin file into the user's project root
+ * and patches their vite.config to import + use it.
  */
-async function injectIntoHTML(htmlPath: string): Promise<boolean> {
-    let content = await fs.promises.readFile(htmlPath, 'utf8');
+async function setupVitePlugin(rootPath: string, extensionPath: string): Promise<{ success: boolean; message: string }> {
+    // 1. Copy the plugin file to the project root
+    const srcPlugin = path.join(extensionPath, 'scripts', 'plugins', 'vite-plugin.mjs');
+    const destPlugin = path.join(rootPath, PLUGIN_FILENAME);
     
-    if (content.includes('http://localhost:3210/inject.js')) {
-        return false; // Already injected
+    try {
+        await fs.promises.copyFile(srcPlugin, destPlugin);
+    } catch (e) {
+        return { success: false, message: `Failed to copy plugin file: ${e}` };
     }
 
-    // Standard HTML injection that works in Dev only via local server availability
-    const injection = `
-    <!-- AI Element Selector -->
-    <script>
-      if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-        const script = document.createElement('script');
-        script.src = 'http://localhost:3210/inject.js';
-        script.async = true;
-        document.head.appendChild(script);
-      }
-    </script>`;
+    // 2. Find or create the vite config
+    let configInfo = findViteConfig(rootPath);
+    
+    if (!configInfo) {
+        // Create a minimal vite.config.mjs
+        const minimalConfig = `import { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: []\n});\n`;
+        const newConfigPath = path.join(rootPath, 'vite.config.mjs');
+        await fs.promises.writeFile(newConfigPath, minimalConfig);
+        configInfo = { path: newConfigPath, ext: '.mjs' };
+    }
 
-    if (content.includes('</body>')) {
-        content = content.replace('</body>', `${injection}\n  </body>`);
-    } else if (content.includes('</html>')) {
-        content = content.replace('</html>', `${injection}\n</html>`);
+    // 3. Patch the config to import and use our plugin
+    let content = await fs.promises.readFile(configInfo.path, 'utf8');
+
+    // Check if already patched
+    if (content.includes(CONFIG_MARKER_START)) {
+        return { success: true, message: 'Vite plugin already configured.' };
+    }
+
+    // Add our import at the top of the file
+    const importLine = `${CONFIG_MARKER_START}\nimport aiSelectorPlugin from './${PLUGIN_FILENAME}';\n${CONFIG_MARKER_END}`;
+    content = importLine + '\n' + content;
+
+    // Inject our plugin into the plugins array
+    // Strategy: find `plugins: [` and insert right after it
+    const pluginsMatch = content.match(/plugins\s*:\s*\[/);
+    if (pluginsMatch && pluginsMatch.index !== undefined) {
+        const insertPos = pluginsMatch.index + pluginsMatch[0].length;
+        content = content.slice(0, insertPos) +
+            `\n    ${CONFIG_MARKER_START}\n    aiSelectorPlugin(),\n    ${CONFIG_MARKER_END}` +
+            content.slice(insertPos);
     } else {
-        content += injection;
+        // No plugins array found — try to inject into defineConfig({})
+        const defineMatch = content.match(/defineConfig\s*\(\s*\{/);
+        if (defineMatch && defineMatch.index !== undefined) {
+            const insertPos = defineMatch.index + defineMatch[0].length;
+            content = content.slice(0, insertPos) +
+                `\n  ${CONFIG_MARKER_START}\n  plugins: [aiSelectorPlugin()],\n  ${CONFIG_MARKER_END}` +
+                content.slice(insertPos);
+        } else {
+            return { success: false, message: 'Could not find plugins array or defineConfig() in vite config. Please add the plugin manually.' };
+        }
     }
 
-    fs.writeFileSync(htmlPath, content);
-    return true;
+    await fs.promises.writeFile(configInfo.path, content);
+    return { success: true, message: `Patched ${path.basename(configInfo.path)} with AI Selector plugin.` };
 }
+
+/**
+ * Removes the Vite plugin from the user's project.
+ */
+async function removeVitePlugin(rootPath: string): Promise<{ success: boolean; message: string }> {
+    // 1. Remove the plugin file
+    const pluginPath = path.join(rootPath, PLUGIN_FILENAME);
+    try {
+        await fs.promises.unlink(pluginPath);
+    } catch (e) {
+        // File doesn't exist, that's fine
+    }
+
+    // 2. Remove our patches from vite config
+    const configInfo = findViteConfig(rootPath);
+    if (configInfo) {
+        let content = await fs.promises.readFile(configInfo.path, 'utf8');
+        // Remove all marked blocks (import + plugin usage)
+        const markerRegex = new RegExp(
+            `\\s*${escapeRegExp(CONFIG_MARKER_START)}[\\s\\S]*?${escapeRegExp(CONFIG_MARKER_END)}`,
+            'g'
+        );
+        content = content.replace(markerRegex, '');
+        await fs.promises.writeFile(configInfo.path, content);
+    }
+
+    return { success: true, message: 'AI Selector plugin removed.' };
+}
+
+// ============================================================================
+// .gitignore Management
+// ============================================================================
+
+/**
+ * Ensures our generated files are in .gitignore.
+ */
+async function ensureGitignore(rootPath: string): Promise<void> {
+    const gitignorePath = path.join(rootPath, '.gitignore');
+    const entries = [PLUGIN_FILENAME];
+    
+    let content = '';
+    try {
+        content = await fs.promises.readFile(gitignorePath, 'utf8');
+    } catch (e) {
+        // No .gitignore, we'll create one
+    }
+
+    const linesToAdd: string[] = [];
+    for (const entry of entries) {
+        if (!content.includes(entry)) {
+            linesToAdd.push(entry);
+        }
+    }
+
+    if (linesToAdd.length > 0) {
+        const block = `\n# AI Element Selector (auto-generated)\n${linesToAdd.join('\n')}\n`;
+        await fs.promises.writeFile(gitignorePath, content + block);
+    }
+}
+
+// ============================================================================
+// Utility
+// ============================================================================
+
+function escapeRegExp(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ============================================================================
+// Extension Activation
+// ============================================================================
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('AI Element Selector is now active!');
@@ -126,15 +213,47 @@ export function activate(context: vscode.ExtensionContext) {
 	let launchDisposable = vscode.commands.registerCommand('ai-element-selector.launchSelector', async () => {
 		if (server) {
 			server.stop();
-			server.start();
-			
-			const targetUrl = `http://localhost:3000`;
-			vscode.env.openExternal(vscode.Uri.parse(targetUrl));
-			vscode.window.showInformationMessage(`AI Selector active! Open your dev site at ${targetUrl}.`);
+
+			// Detect if this is a plain HTML project (Generic) to enable static file serving
+			let rootPath: string | undefined;
+			const activeEditor = vscode.window.activeTextEditor;
+			if (activeEditor) {
+				rootPath = findProjectRoot(path.dirname(activeEditor.document.uri.fsPath));
+			}
+			if (!rootPath && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+				rootPath = findProjectRoot(vscode.workspace.workspaceFolders[0].uri.fsPath);
+			}
+			// Even without package.json, use the workspace folder as root for plain HTML
+			if (!rootPath && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+				rootPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+			}
+
+			let framework: Framework = 'Generic';
+			if (rootPath) {
+				framework = await detectFramework(rootPath);
+			}
+
+			if (framework === 'Generic' && rootPath) {
+				// Plain HTML: Enable static file serving mode
+				server.setProjectRoot(rootPath);
+				server.start();
+				const targetUrl = `http://localhost:3210`;
+				vscode.env.openExternal(vscode.Uri.parse(targetUrl));
+				vscode.window.showInformationMessage(
+					`AI Selector active in Static Server mode! Open ${targetUrl} to browse your project.`
+				);
+			} else {
+				// Framework project: User has their own dev server
+				server.setProjectRoot(undefined);
+				server.start();
+				const targetUrl = `http://localhost:3000`;
+				vscode.env.openExternal(vscode.Uri.parse(targetUrl));
+				vscode.window.showInformationMessage(`AI Selector active! Open your dev site at ${targetUrl}.`);
+			}
 		}
 	});
 
-	// Command 2: Auto-Setup (Babel + Layout Injection + Cache Clean)
+	// Command 2: Auto-Setup (Babel + Dev Server Middleware — Zero-File-Edit)
 	let setupDisposable = vscode.commands.registerCommand('ai-element-selector.setupSourceMapping', async () => {
 		let startPath: string | undefined;
 
@@ -151,70 +270,66 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		const rootPath = findProjectRoot(startPath);
-		if (!rootPath) {
-			vscode.window.showErrorMessage('Could not find project root (package.json).');
+		// For Generic projects, we allow no package.json — use workspace root
+		const resolvedRoot = rootPath || (vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0]?.uri.fsPath : undefined);
+		if (!resolvedRoot) {
+			vscode.window.showErrorMessage('Could not find project root.');
 			return;
 		}
 
-        const framework = await detectFramework(rootPath);
+        const framework = await detectFramework(resolvedRoot);
         vscode.window.showInformationMessage(`Detected Framework: ${framework}`);
 
-		// --- 1. Babel Setup (For mapping info - mainly JSX) ---
-		const babelRcPath = path.join(rootPath, '.babelrc');
-		let babelConfig: any = { plugins: [] };
-        
-        // Next.js needs its specific preset
-        if (framework === 'Next.js') {
-            babelConfig.presets = ["next/babel"];
-        }
+		// --- 1. Babel Setup (For source mapping metadata — framework projects only) ---
+		if (framework !== 'Generic') {
+			const babelRcPath = path.join(resolvedRoot, '.babelrc');
+			let babelConfig: any = { plugins: [] };
+			
+			// Next.js needs its specific preset
+			if (framework === 'Next.js') {
+				babelConfig.presets = ["next/babel"];
+			}
 
-		if (fs.existsSync(babelRcPath)) {
-			try { babelConfig = JSON.parse(await fs.promises.readFile(babelRcPath, 'utf8')); } catch (e) {}
+			if (fs.existsSync(babelRcPath)) {
+				try { babelConfig = JSON.parse(await fs.promises.readFile(babelRcPath, 'utf8')); } catch (e) {}
+			}
+			const pluginPath = path.join(context.extensionPath, 'packages', 'babel-plugin-source-mapper');
+			if (!babelConfig.plugins) babelConfig.plugins = [];
+			if (framework === 'Next.js') {
+				if (!babelConfig.presets) babelConfig.presets = [];
+				if (!babelConfig.presets.includes("next/babel")) babelConfig.presets.unshift("next/babel");
+			}
+
+			if (!babelConfig.plugins.includes(pluginPath)) {
+				babelConfig.plugins.push(pluginPath);
+				await fs.promises.writeFile(babelRcPath, JSON.stringify(babelConfig, null, 2));
+			}
 		}
-		const pluginPath = path.join(context.extensionPath, 'packages', 'babel-plugin-source-mapper');
-		if (!babelConfig.plugins) babelConfig.plugins = [];
-		if (framework === 'Next.js') {
-            if (!babelConfig.presets) babelConfig.presets = [];
-            if (!babelConfig.presets.includes("next/babel")) babelConfig.presets.unshift("next/babel");
-        }
 
-		if (!babelConfig.plugins.includes(pluginPath)) {
-			babelConfig.plugins.push(pluginPath);
-			await fs.promises.writeFile(babelRcPath, JSON.stringify(babelConfig, null, 2));
-		}
-
-		// --- 2. Environment-Specific Injection ---
-		let injectionResult = false;
-        let injectionTarget = '';
+		// --- 2. Dev Server Middleware (Zero-File-Edit Injection) ---
+        let injectionMessage = '';
 
         if (framework === 'Next.js') {
-            const appDirPath = path.join(rootPath, 'app');
-            const layouts = ['layout.tsx', 'layout.js'];
-            for (const l of layouts) {
-                const p = path.join(appDirPath, l);
-                if (fs.existsSync(p)) {
-                    injectionResult = await injectIntoLayout(p);
-                    injectionTarget = 'app/' + l;
-                    break;
-                }
+            // Next.js: The Babel plugin already handles runtime injection (zero-file-edit).
+            injectionMessage = 'Babel plugin handles runtime script injection (no file edits needed).';
+        } else if (framework === 'Vite' || framework === 'Vue' || framework === 'SvelteKit') {
+            // Vite-based: Use the Vite plugin to inject via transformIndexHtml
+            const result = await setupVitePlugin(resolvedRoot, context.extensionPath);
+            if (!result.success) {
+                vscode.window.showErrorMessage(result.message);
+                return;
             }
-        } else if (framework === 'SvelteKit') {
-            const appHtmlPath = path.join(rootPath, 'src', 'app.html');
-            if (fs.existsSync(appHtmlPath)) {
-                injectionResult = await injectIntoHTML(appHtmlPath);
-                injectionTarget = 'src/app.html';
-            }
+            injectionMessage = result.message;
+
+            // Add plugin file to .gitignore so it never pollutes the repo
+            await ensureGitignore(resolvedRoot);
         } else {
-            // Vite, Vue, or Generic
-            const indexHtmlPath = path.join(rootPath, 'index.html');
-            if (fs.existsSync(indexHtmlPath)) {
-                injectionResult = await injectIntoHTML(indexHtmlPath);
-                injectionTarget = 'index.html';
-            }
+            // Generic / Plain HTML: Use the built-in static server
+            injectionMessage = 'Built-in dev server will auto-inject the selector (open http://localhost:3210).';
         }
 
 		// --- 3. Build Cache Clean (Next.js specific) ---
-		const dotNextPath = path.join(rootPath, '.next');
+		const dotNextPath = path.join(resolvedRoot, '.next');
 		let cacheCleaned = false;
 		if (framework === 'Next.js' && fs.existsSync(dotNextPath)) {
 			const cleanResponse = await vscode.window.showInformationMessage(
@@ -231,8 +346,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}
 
-		let msg = `${framework} Selector setup complete!`;
-		if (injectionResult) msg += ` Injected Script into ${injectionTarget}.`;
+		let msg = `✅ ${framework} setup complete (Zero-File-Edit)! ${injectionMessage}`;
 		if (cacheCleaned) msg += ' Cleared build cache.';
 		msg += ' Please RESTART your dev server.';
 		
@@ -247,7 +361,63 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	context.subscriptions.push(launchDisposable, setupDisposable, stopDisposable);
+    // Command 4: Remove Setup (Clean Undo)
+    let removeDisposable = vscode.commands.registerCommand('ai-element-selector.removeSetup', async () => {
+        let startPath: string | undefined;
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            startPath = path.dirname(activeEditor.document.uri.fsPath);
+        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            startPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        }
+
+        if (!startPath) {
+            vscode.window.showErrorMessage('No file or workspace open.');
+            return;
+        }
+
+        const rootPath = findProjectRoot(startPath);
+        if (!rootPath) {
+            vscode.window.showErrorMessage('Could not find project root (package.json).');
+            return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+            'This will remove the AI Selector Babel plugin and Vite plugin from this project. Continue?',
+            'Yes', 'No'
+        );
+        if (confirm !== 'Yes') return;
+
+        // 1. Remove Vite plugin
+        const viteResult = await removeVitePlugin(rootPath);
+
+        // 2. Remove .babelrc plugin entry
+        const babelRcPath = path.join(rootPath, '.babelrc');
+        if (fs.existsSync(babelRcPath)) {
+            try {
+                const babelConfig = JSON.parse(await fs.promises.readFile(babelRcPath, 'utf8'));
+                if (babelConfig.plugins) {
+                    babelConfig.plugins = babelConfig.plugins.filter(
+                        (p: string) => !p.includes('babel-plugin-source-mapper')
+                    );
+                }
+                // If config is effectively empty, delete it
+                const hasPlugins = babelConfig.plugins && babelConfig.plugins.length > 0;
+                const hasPresets = babelConfig.presets && babelConfig.presets.length > 0 && 
+                    !(babelConfig.presets.length === 1 && babelConfig.presets[0] === 'next/babel');
+                
+                if (!hasPlugins && !hasPresets) {
+                    await fs.promises.unlink(babelRcPath);
+                } else {
+                    await fs.promises.writeFile(babelRcPath, JSON.stringify(babelConfig, null, 2));
+                }
+            } catch (e) {}
+        }
+
+        vscode.window.showInformationMessage('🧹 AI Selector setup removed. Please restart your dev server.');
+    });
+
+	context.subscriptions.push(launchDisposable, setupDisposable, stopDisposable, removeDisposable);
 }
 
 export function deactivate() {

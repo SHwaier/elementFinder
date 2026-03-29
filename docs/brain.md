@@ -11,10 +11,10 @@ This file serves as the source of truth for the AI assistant and any future AI s
 ## 2. Core Rules for AI
 
 1. **Adhere to the PRD**: Always refer to `docs/prd.md` for functional requirements and scope.
-2. **Framework Focus**: Initially support **Next.js** only. Do not add support for other frameworks unless instructed.
+2. **Framework Focus**: Support **Next.js**, **Vite**, **Vue**, **SvelteKit**, and **Plain HTML** (no framework required).
 3. **Environment**: The tool must operate **exclusively on localhost**.
 4. **Source Mapping**: Prioritize injected metadata (`data-source-file`, `data-source-line`) for 100% accuracy.
-5. **Zero-Config First**: Prioritize automated injection (`app/layout.tsx`) over manual configuration.
+5. **Zero-File-Edit**: Never modify user source files (`layout.tsx`, `index.html`). Use dev server middleware (Vite plugin / Babel runtime injection) to inject the selector script into the HTML stream.
 
 ## 3. Security First Approach
 
@@ -30,17 +30,30 @@ This file serves as the source of truth for the AI assistant and any future AI s
 2. Install the generated `.vsix` file in your editor (Cursor, Antigravity, or VS Code) via **"Extensions: Install from VSIX..."**.
 
 ### Step 2: Project Setup
-1. Open your Next.js project.
+1. Open your project.
 2. Run command: `AI: Setup Source Mapping for Project`.
-   - *This adds the dependency-free Babel plugin to your configuration.*
-   - *This injects the <Script /> tag into your app/layout.tsx.*
+   - *This adds the dependency-free Babel plugin to your `.babelrc`.*
+   - **Next.js**: The Babel plugin injects the script at runtime (zero file edits).
+   - **Vite/Vue/SvelteKit**: A Vite plugin (`ai-selector-plugin.mjs`) is copied to your project root and auto-patched into `vite.config.*`. The plugin is added to `.gitignore`.
 
 ### Step 3: Launch Selector
 1. Run command: `AI: Launch Selector (Zero-Config)`.
 2. Open your dev site at `http://localhost:3000`.
 3. Select an element on the page.
 
+### Removing Setup
+- Run command: `AI: Remove Source Mapping Setup` to cleanly undo all changes.
+
 ## 5. Project Log
+
+### 2026-03-29 (v4.0 Zero-File-Edit Middleware)
+- **Zero-File-Edit Architecture**: Replaced all source file modifications (`layout.tsx`, `index.html`, `app.html`) with dev server middleware injection.
+- **Next.js**: Removed `injectIntoLayout()`. Now relies entirely on the Babel plugin's built-in runtime injection (`window.__SELECTOR_INJECTED__`).
+- **Vite/Vue/SvelteKit**: Created `scripts/plugins/vite-plugin.mjs` using Vite's native `transformIndexHtml` hook. The plugin is auto-copied to the project root and patched into `vite.config.*`.
+- **Plain HTML Support**: Built-in static file server mode in `server.ts`. When framework is `Generic`, the hub server serves project files from `localhost:3210` and auto-injects the selector script into every HTML response. Includes directory listing, MIME type handling, and path traversal protection.
+- **Auto-Gitignore**: Plugin files are automatically added to `.gitignore` so they never pollute the user's repo.
+- **Remove Command**: Added `AI: Remove Source Mapping Setup` command for clean teardown of Babel + Vite plugin config.
+- **Config Markers**: Introduced `CONFIG_MARKER_START`/`END` delimiters for safe, reversible config file patching.
 
 ### 2026-03-29 (v3.1 Production-Grade Refinement)
 - **Security Hardening**: Implemented WebSocket Origin Validation, 127.0.0.1 strict binding, and shell command sanitization (regex whitelisting).
