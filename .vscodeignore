@@ -4,13 +4,16 @@
 tsconfig.json
 package-lock.json
 src/**
-temp scripts/**
+temp\ scripts/**
 docs/**
-LICENSE (if any)
-node_modules/**
+# node_modules/** (vsce automatically handles dependencies)
 out/test/**
 test-fixtures/**
 scripts/test-*.js
 **/*.map
 **/*.ts
 **/*.js.map
+ai-element-selector-*.vsix
+.DS_Store
+tmp-*/**
+test-projects/**

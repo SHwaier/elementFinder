@@ -42,6 +42,18 @@ This file serves as the source of truth for the AI assistant and any future AI s
 
 ## 5. Project Log
 
+### 2026-03-29 (v3.1 Production-Grade Refinement)
+- **Security Hardening**: Implemented WebSocket Origin Validation, 127.0.0.1 strict binding, and shell command sanitization (regex whitelisting).
+- **Performance Optimization**: Refactored `server.ts` and `extension.ts` to use asynchronous file IO (`fs.promises`).
+- **Reliability**: Switched to `vscode.Uri` abstraction and fixed framework detection edge cases.
+
+### 2026-03-29 (v3.0 Multi-Framework Support)
+- **Framework Expansion**: Implemented Universal Project Detection and Injection Logic.
+- **Vite & Vue Support**: Added `index.html` modification for a zero-config experience in Vite and Vue projects.
+- **SvelteKit Support**: Added `src/app.html` injection and custom framework detection.
+- **Intelligent Prompts**: Generalized the server hub to support framework-agnostic AI prompts.
+- **Documentation**: Updated README with a compatibility matrix and manual source mapping guides.
+
 ### 2026-03-28 (v2.1 Advanced Customization & VSIX)
 - **VSIX Packaging**: Integrated `@vscode/vsce` and `.vscodeignore` for professional distribution. Generated `ai-element-selector-0.1.0.vsix`.
 - **Advanced Prompt Customization**: Implemented a **Templating System** (`{{tag}}`, `{{props}}`, etc.), **Compact Mode**, and **Task Placeholders**.

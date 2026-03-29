@@ -67,8 +67,8 @@ A unified Node.js server that:
 ### ✅ Phase 3: Customization & VSIX
 - VS Code Settings, Templates, and professional packaging.
 
-### 🟡 Phase 4: Framework Expansion
-- Add support for **Vite** and standard React projects.
+### ✅ Phase 4: Framework Expansion
+- Add support for **Vite**, **Vue**, and **SvelteKit**.
 
 ### 🟡 Phase 5: Deep Visual Editing
 - Inline text editing in the browser.

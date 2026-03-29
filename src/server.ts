@@ -15,11 +15,12 @@ export class SelectionServer {
     public start(): void {
         const appName = vscode.env.appName;
 
-        this.httpServer = http.createServer((req, res) => {
+        this.httpServer = http.createServer(async (req, res) => {
             if (req.url === '/inject.js') {
                 const scriptPath = path.join(__dirname, '..', 'scripts', 'inject.js');
                 try {
-                    let script = fs.readFileSync(scriptPath, 'utf8');
+                    const scriptBuffer = await fs.promises.readFile(scriptPath);
+                    let script = scriptBuffer.toString('utf8');
                     const config = vscode.workspace.getConfiguration('ai-element-selector');
                     
                     // --- Dynamic Injection of Settings & Editor Name ---
@@ -45,7 +46,16 @@ export class SelectionServer {
             }
         });
 
-        this.wss = new ws.Server({ server: this.httpServer });
+        // Hardened WebSocket Server: Validates Origin
+        this.wss = new ws.Server({ 
+            server: this.httpServer,
+            verifyClient: (info: any) => {
+                const origin = info.origin;
+                // Allow requests from localhost, 127.0.0.1, or browser-side file protocols
+                const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
+                return isLocal;
+            }
+        });
         
         this.wss.on('connection', (socket) => {
             console.log(`Browser connected to ${appName} Element Selector`);
@@ -59,11 +69,12 @@ export class SelectionServer {
             });
         });
 
-        this.httpServer.listen(this.port, () => {
-            console.log(`${appName} Selector Server started on http://localhost:${this.port}`);
+        // Strictly bind to 127.0.0.1 to avoid network exposure
+        this.httpServer.listen(this.port, '127.0.0.1', () => {
+            console.log(`${appName} Selector Server started on http://127.0.0.1:${this.port}`);
         });
         
-        vscode.window.showInformationMessage(`${appName} Selector Server started on http://localhost:${this.port}.`);
+        vscode.window.showInformationMessage(`${appName} Selector Server started on http://127.0.0.1:${this.port}. Bound to localhost for security.`);
     }
 
     public stop(): void {
@@ -77,7 +88,7 @@ export class SelectionServer {
 
         if (file && line) {
             const uri = vscode.Uri.file(file);
-            vscode.workspace.openTextDocument(uri).then((doc) => {
+            vscode.workspace.openTextDocument(uri).then(async (doc) => {
                 vscode.window.showTextDocument(doc, {
                     selection: new vscode.Range(line - 1, 0, line - 1, 0),
                     preview: false,
@@ -86,7 +97,7 @@ export class SelectionServer {
                 
                 if (config.get<boolean>('includeSnippet', true)) {
                     const range = config.get<number>('snippetRange', 5);
-                    payload.snippet = this.readCodeSnippet(file, line, range);
+                    payload.snippet = await this.readCodeSnippet(file, line, range);
                 }
 
                 const prompt = this.generatePrompt(payload, config, appName);
@@ -101,16 +112,17 @@ export class SelectionServer {
                 const prompt = this.generatePrompt(payload, config, appName);
                 vscode.env.clipboard.writeText(prompt);
             });
-        } else {
+        }
+ else {
             const prompt = this.generatePrompt(payload, config, appName);
             vscode.env.clipboard.writeText(prompt);
             vscode.window.showWarningMessage('Element captured for AI (Mapping missing).');
         }
     }
 
-    private readCodeSnippet(filePath: string, targetLine: number, range: number): string {
+    private async readCodeSnippet(filePath: string, targetLine: number, range: number): Promise<string> {
         try {
-            const content = fs.readFileSync(filePath, 'utf8');
+            const content = await fs.promises.readFile(filePath, 'utf8');
             const lines = content.split(/\r?\n/);
             const start = Math.max(0, targetLine - (range + 1));
             const end = Math.min(lines.length, targetLine + range);
@@ -127,12 +139,15 @@ export class SelectionServer {
 
     private refocusWindow(appName: string): void {
         const platform = process.platform;
+        // Whitelist app name to prevent command injection (only allow alphanumeric, spaces, and common editor names)
+        const sanitizedAppName = appName.replace(/[^a-zA-Z0-9\s\.\-]/g, '');
+
         if (platform === 'darwin') {
-            exec(`osascript -e "tell application \\"${appName}\\" to activate"`);
+            exec(`osascript -e "tell application \\"${sanitizedAppName}\\" to activate"`);
         } else if (platform === 'win32') {
-            exec(`powershell -Command "(New-Object -ComObject WScript.Shell).AppActivate('${appName}')"`);
+            exec(`powershell -Command "(New-Object -ComObject WScript.Shell).AppActivate('${sanitizedAppName}')"`);
         } else if (platform === 'linux') {
-            exec(`wmctrl -a "${appName}" || code .`);
+            exec(`wmctrl -a "${sanitizedAppName}" || code .`);
         }
     }
 
@@ -144,7 +159,7 @@ export class SelectionServer {
             return this.fillTemplate(customTemplate, payload, config);
         }
 
-        const systemPrompt = config.get<string>('systemPrompt', `You are editing a project in ${appName}.`);
+        const systemPrompt = config.get<string>('systemPrompt', `You are an expert developer assistant.`);
         const taskPlaceholder = config.get<string>('taskPlaceholder', '[User instruction here]');
         const compact = config.get<boolean>('compactPrompt', false);
         const includeProps = config.get<boolean>('includeProps', true);

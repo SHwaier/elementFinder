@@ -10,7 +10,16 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:ai-element-selector.launchSelector",
+    "onCommand:ai-element-selector.setupSourceMapping",
+    "onCommand:ai-element-selector.stopSelector"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unknown159/ai-element-selector"
+  },
+  "license": "MIT",
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -32,7 +41,7 @@
       "properties": {
         "ai-element-selector.systemPrompt": {
           "type": "string",
-          "default": "You are editing a Next.js project.",
+          "default": "You are a professional developer assistant.",
           "description": "The base instruction for the AI (the header of the prompt)."
         },
         "ai-element-selector.taskPlaceholder": {
