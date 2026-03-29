@@ -1,0 +1,127 @@
+{
+  "name": "ai-element-selector",
+  "displayName": "AI Element Selector",
+  "description": "Select elements in browser and generate AI prompts with source mapping.",
+  "version": "0.1.0",
+  "publisher": "unknown159",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-element-selector.launchSelector",
+        "title": "AI: Launch Selector (Zero-Config)"
+      },
+      {
+        "command": "ai-element-selector.setupSourceMapping",
+        "title": "AI: Setup Source Mapping for Project"
+      },
+      {
+        "command": "ai-element-selector.stopSelector",
+        "title": "AI: Stop Selector"
+      }
+    ],
+    "configuration": {
+      "title": "AI Element Selector",
+      "properties": {
+        "ai-element-selector.systemPrompt": {
+          "type": "string",
+          "default": "You are editing a Next.js project.",
+          "description": "The base instruction for the AI (the header of the prompt)."
+        },
+        "ai-element-selector.taskPlaceholder": {
+          "type": "string",
+          "default": "[User instruction here]",
+          "description": "The text used for the user instruction placeholder."
+        },
+        "ai-element-selector.includeSnippet": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include surrounding code context."
+        },
+        "ai-element-selector.snippetRange": {
+          "type": "number",
+          "default": 5,
+          "description": "Number of lines of code context to include before and after the target."
+        },
+        "ai-element-selector.includeProps": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include detected React component props."
+        },
+        "ai-element-selector.compactPrompt": {
+          "type": "boolean",
+          "default": false,
+          "description": "Remove extra whitespace and headers for a direct, minimal prompt."
+        },
+        "ai-element-selector.includeConstraints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the default instructions like 'Only modify code relevant to this element'."
+        },
+        "ai-element-selector.customTemplate": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Use simple variables like `{{component}}`, `{{file}}`, `{{line}}`, `{{tag}}`, `{{text}}`, `{{snippet}}`, and `{{props}}` to define your own prompt layout. Leave blank to use the default formatting.",
+          "editPresentation": "multilineText"
+        },
+        "ai-element-selector.highlightColor": {
+          "type": "string",
+          "default": "rgba(0, 122, 255, 0.7)",
+          "description": "CSS color for the element selection box."
+        },
+        "ai-element-selector.autoFocus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically switch focus back to the editor after capturing an element."
+        },
+        "ai-element-selector.modifierKey": {
+          "type": "string",
+          "enum": [
+            "Alt",
+            "Shift",
+            "Control",
+            "Meta"
+          ],
+          "default": "Alt",
+          "description": "The key to hold to temporarily disable selection (to click real buttons/links)."
+        },
+        "ai-element-selector.showToasts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the in-browser capture notifications (toasts)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/http-proxy": "^1.17.17",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.19.1",
+    "@typescript-eslint/parser": "^6.19.1",
+    "@vscode/vsce": "^2.31.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1",
+    "ws": "^8.16.0"
+  }
+}

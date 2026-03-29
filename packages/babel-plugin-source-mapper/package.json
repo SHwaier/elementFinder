@@ -1,0 +1,17 @@
+{
+  "name": "babel-plugin-source-mapper",
+  "version": "0.1.0",
+  "description": "Babel plugin to inject source mapping metadata into JSX elements.",
+  "main": "index.js",
+  "keywords": [
+    "babel-plugin",
+    "jsx",
+    "source-mapping",
+    "ai-element-selector"
+  ],
+  "author": "unknown159",
+  "license": "MIT",
+  "peerDependencies": {
+    "@babel/core": "^7.0.0"
+  }
+}
